@@ -209,57 +209,56 @@
    3) USE_API を true に変更
    これだけで、デモデータ→本物の楽天商品検索に切り替わります。UIは変更不要。
 ------------------------------------------------------------------ */
-const APP_ID = "";        // ← ここに楽天のアプリIDを貼る
-const AFFILIATE_ID = "";  // ← (任意)楽天アフィリエイトIDがあれば貼る
-const USE_API  = false;   // ← APIを使うなら true に
+const APP_ID     = "fee86daa-ec3f-48fe-a1f1-47b4812c7b3d";           // アプリケーションID
+const ACCESS_KEY = "pk_ZNlwtYGSJgQc75MfjFxDrfnPDiX1uTQuAYB9q5B1FCL"; // アクセスキー
+const AFFILIATE_ID = "";  // 空のまま(報酬は投稿者=相手のROOM側に付く。Ryoのを入れると報酬がRyoに向く)
+const USE_API  = true;    // ← APIを使うなら true に
 
 /* 商品データ取得の唯一の入口。UI側はこの関数しか呼ばない。
    デモ⇄API の切り替えはここで吸収される。 */
 async function fetchProducts(query){
-  if(USE_API && APP_ID){
-    return await fetchFromRakuten(query);   // 本番:楽天API(JSONP)
+  if(USE_API && APP_ID && ACCESS_KEY){
+    return await fetchFromRakuten(query);   // 本番:楽天API(新エンドポイント)
   }
   return filterDemo(query);                 // デモ:内蔵サンプル
 }
 
-/* --- 本番用:楽天商品検索API(JSONPでCORS回避。キー設定後に有効化される) --- */
-function fetchFromRakuten(query){
-  return new Promise((resolve,reject)=>{
-    const cb = "rk_cb_" + Math.abs(hashStr(query.q + query.sort + Date.now()%100000));
-    const p = new URLSearchParams({
-      applicationId: APP_ID,
-      format: "json",
-      keyword: query.q || "",
-      hits: "30",
-      callback: cb
-    });
-    if(AFFILIATE_ID) p.set("affiliateId", AFFILIATE_ID);
-    if(query.minP) p.set("minPrice", query.minP);
-    if(query.maxP) p.set("maxPrice", query.maxP);
-    const sortMap={rank:"standard",reviewCount:"-reviewCount",reviewRate:"-reviewAverage",priceAsc:"+itemPrice",priceDesc:"-itemPrice"};
-    p.set("sort", sortMap[query.sort]||"standard");
-
-    window[cb]=(data)=>{
-      delete window[cb]; s.remove();
-      try{
-        let items=(data.Items||[]).map(x=>x.Item).map(it=>({
-          id: it.itemCode, name: it.itemName, price: it.itemPrice,
-          reviewCount: it.reviewCount, reviewRate: it.reviewAverage,
-          genre: (it.genreId||""), url: it.itemUrl,
-          image: (it.mediumImageUrls&&it.mediumImageUrls[0]&&it.mediumImageUrls[0].imageUrl)||"",
-          shop: it.shopName
-        }));
-        items=applyClientFilter(items,query);
-        resolve(items);
-      }catch(e){ reject(e); }
-    };
-    const s=document.createElement("script");
-    s.src="https://app.rakuten.co.jp/services/api/IchibaItem/Search/20220601?"+p.toString();
-    s.onerror=()=>{delete window[cb];reject(new Error("API接続に失敗しました"));};
-    document.head.appendChild(s);
+/* --- 本番用:楽天商品検索API(2026移行版 openapi.rakuten.co.jp / CORS対応 fetch) ---
+   登録URL(このツールの公開URL)以外からは楽天側が弾く(リファラー制限)ので、
+   ACCESS_KEY を埋め込んでも他サイトからの盗用はできない仕様。 */
+async function fetchFromRakuten(query){
+  const p = new URLSearchParams({
+    applicationId: APP_ID,
+    accessKey: ACCESS_KEY,
+    format: "json",
+    keyword: query.q || "",
+    hits: "30"
   });
+  if(AFFILIATE_ID) p.set("affiliateId", AFFILIATE_ID);
+  if(query.minP) p.set("minPrice", query.minP);
+  if(query.maxP) p.set("maxPrice", query.maxP);
+  const sortMap={rank:"standard",reviewCount:"-reviewCount",reviewRate:"-reviewAverage",priceAsc:"+itemPrice",priceDesc:"-itemPrice"};
+  p.set("sort", sortMap[query.sort]||"standard");
+
+  const url="https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701?"+p.toString();
+  let res;
+  try{ res=await fetch(url); }
+  catch(e){ throw new Error("ネットワークエラー。通信環境を確認してください。"); }
+  if(!res.ok){
+    if(res.status===429) throw new Error("アクセスが集中しています。10秒ほど待って再検索してください。");
+    if(res.status===403) throw new Error("このURLからのアクセスが許可されていません(リファラー設定を確認)。");
+    throw new Error("楽天APIに接続できませんでした(コード "+res.status+")");
+  }
+  const data=await res.json();
+  let items=(data.Items||[]).map(x=>x.Item||x).map(it=>({
+    id: it.itemCode||it.itemUrl, name: it.itemName, price: it.itemPrice,
+    reviewCount: it.reviewCount||0, reviewRate: it.reviewAverage||0,
+    genre: "", url: it.affiliateUrl||it.itemUrl,
+    image: (it.mediumImageUrls&&it.mediumImageUrls[0]&&it.mediumImageUrls[0].imageUrl)||"",
+    shop: it.shopName
+  }));
+  return applyClientFilter(items,query);
 }
-function hashStr(s){let h=0;for(let i=0;i<s.length;i++){h=(h<<5)-h+s.charCodeAt(i)|0;}return h;}
 
 /* レビュー数/評価の絞り込みはクライアント側で共通適用 */
 function applyClientFilter(items,q){
