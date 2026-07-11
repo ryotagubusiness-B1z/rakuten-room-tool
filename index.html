@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>楽天ROOM 投稿支援ツール</title>
+<style>
+  :root{
+    --bg:#f4f4f2; --panel:#ffffff; --ink:#161616; --sub:#6b6b6b;
+    --line:#e3e3e0; --line2:#d0d0cc; --accent:#161616; --accent-ink:#ffffff;
+    --ok:#1f7a3d; --warn:#a23b3b; --chip:#f0f0ee;
+    --radius:10px; --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.05);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI","Hiragino Kaku Gothic ProN","Noto Sans JP",Meiryo,sans-serif;
+    background:var(--bg);color:var(--ink);line-height:1.6;-webkit-font-smoothing:antialiased}
+  header{background:var(--panel);border-bottom:1px solid var(--line);padding:18px 24px;position:sticky;top:0;z-index:20}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+  h1{font-size:18px;margin:0;letter-spacing:.02em;font-weight:700}
+  h1 .sub{font-size:12px;color:var(--sub);font-weight:400;margin-left:10px;letter-spacing:.04em}
+  nav{display:flex;gap:4px;margin-top:14px;flex-wrap:wrap}
+  nav button{border:1px solid var(--line2);background:var(--panel);color:var(--sub);
+    padding:8px 16px;border-radius:999px;cursor:pointer;font-size:13px;font-weight:600;transition:.15s;letter-spacing:.02em}
+  nav button:hover{border-color:var(--ink);color:var(--ink)}
+  nav button.active{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  nav button .badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;border-radius:999px;
+    background:rgba(255,255,255,.22);font-size:11px;text-align:center}
+  nav button:not(.active) .badge{background:var(--chip);color:var(--sub)}
+  main{padding:26px 0 80px}
+  .tab{display:none}.tab.active{display:block}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .panel-p{padding:20px}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field label{font-size:12px;color:var(--sub);font-weight:600;letter-spacing:.03em}
+  input[type=text],input[type=number],select,textarea{
+    border:1px solid var(--line2);background:#fff;border-radius:8px;padding:9px 11px;font-size:14px;color:var(--ink);
+    font-family:inherit;outline:none;transition:.15s}
+  input:focus,select:focus,textarea:focus{border-color:var(--ink)}
+  textarea{resize:vertical;width:100%;min-height:96px;line-height:1.55}
+  .btn{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);
+    padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:.02em;transition:.15s}
+  .btn:hover{opacity:.86}
+  .btn.ghost{background:#fff;color:var(--ink);border-color:var(--line2)}
+  .btn.ghost:hover{border-color:var(--ink);opacity:1}
+  .btn.sm{padding:6px 12px;font-size:12px}
+  .btn.danger{background:#fff;color:var(--warn);border-color:#e2c6c6}
+  .btn.danger:hover{background:var(--warn);color:#fff;border-color:var(--warn)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:18px}
+  .card{border:1px solid var(--line);border-radius:var(--radius);background:#fff;overflow:hidden;display:flex;flex-direction:column}
+  .card .thumb{aspect-ratio:1/1;background:#eee center/cover no-repeat;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:12px}
+  .card .body{padding:12px;display:flex;flex-direction:column;gap:7px;flex:1}
+  .card .name{font-size:13px;font-weight:600;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:36px}
+  .card .price{font-size:16px;font-weight:700}
+  .card .meta{font-size:11px;color:var(--sub);display:flex;gap:10px;flex-wrap:wrap}
+  .card .foot{padding:0 12px 12px}
+  .tag{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:999px;
+    padding:3px 10px;font-size:12px;color:var(--ink);cursor:pointer;user-select:none;transition:.12s}
+  .tag:hover{border-color:var(--ink)}
+  .tag.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .stars{color:#161616;letter-spacing:1px}
+  .empty{text-align:center;color:var(--sub);padding:56px 20px;font-size:14px}
+  .item{display:flex;gap:14px;padding:14px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;align-items:flex-start}
+  .item .thumb{width:70px;height:70px;border-radius:8px;flex-shrink:0;background:#eee center/cover}
+  .item .grow{flex:1;min-width:0}
+  .item .name{font-weight:600;font-size:14px;margin-bottom:3px}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+  .toolbar h2{font-size:15px;margin:0;letter-spacing:.02em}
+  .stack{display:flex;flex-direction:column;gap:14px}
+  .postcard{border:1px solid var(--line);border-radius:var(--radius);background:#fff}
+  .postcard .hd{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);gap:10px}
+  .postcard .hd .name{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .postcard .bd{padding:14px}
+  .preview{background:#fafafa;border:1px dashed var(--line2);border-radius:8px;padding:12px;font-size:13px;white-space:pre-wrap;line-height:1.65}
+  .muted{color:var(--sub);font-size:12px}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:640px){.split{grid-template-columns:1fr}}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);
+    background:var(--ink);color:#fff;padding:11px 20px;border-radius:999px;font-size:13px;opacity:0;
+    transition:.25s;pointer-events:none;z-index:50;box-shadow:var(--shadow)}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .banner{background:#fbfbf9;border:1px solid var(--line);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--sub);margin-bottom:16px}
+  .banner b{color:var(--ink)}
+  .checkline{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--sub)}
+  .seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
+  .seg button{border:none;background:#fff;padding:7px 13px;font-size:12px;cursor:pointer;color:var(--sub);font-weight:600}
+  .seg button.active{background:var(--accent);color:#fff}
+  .divider{height:1px;background:var(--line);margin:16px 0}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>楽天ROOM 投稿支援ツール <span class="sub">選定 → 紹介文 → タグ → 投稿リスト</span></h1>
+    <nav id="nav">
+      <button data-tab="search" class="active">① 検索・絞り込み</button>
+      <button data-tab="pool">② 候補リスト <span class="badge" id="poolBadge">0</span></button>
+      <button data-tab="write">③ 紹介文＆タグ <span class="badge" id="writeBadge">0</span></button>
+      <button data-tab="posts">④ 投稿リスト <span class="badge" id="postBadge">0</span></button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ① 検索 -->
+  <section class="tab active" id="tab-search">
+    <div class="banner" id="dataBanner">現在は <b>デモデータ</b> で動作中です。楽天APIキーを設定すると本物の商品検索になります。</div>
+    <div class="panel panel-p">
+      <div class="row">
+        <div class="field" style="flex:1;min-width:180px">
+          <label>キーワード</label>
+          <input type="text" id="q" placeholder="例:スキンケア 化粧水">
+        </div>
+        <div class="field">
+          <label>最低価格</label>
+          <input type="number" id="minP" placeholder="0" style="width:110px">
+        </div>
+        <div class="field">
+          <label>最高価格</label>
+          <input type="number" id="maxP" placeholder="上限なし" style="width:110px">
+        </div>
+        <div class="field">
+          <label>最低レビュー数</label>
+          <input type="number" id="minR" placeholder="0" style="width:110px">
+        </div>
+        <div class="field">
+          <label>最低評価</label>
+          <select id="minRate">
+            <option value="0">指定なし</option>
+            <option value="3">★3.0以上</option>
+            <option value="3.5">★3.5以上</option>
+            <option value="4">★4.0以上</option>
+            <option value="4.5">★4.5以上</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>並び替え</label>
+          <select id="sort">
+            <option value="rank">おすすめ順</option>
+            <option value="reviewCount">レビュー数が多い順</option>
+            <option value="reviewRate">評価が高い順</option>
+            <option value="priceAsc">価格が安い順</option>
+            <option value="priceDesc">価格が高い順</option>
+          </select>
+        </div>
+        <button class="btn" id="searchBtn">検索</button>
+      </div>
+      <div class="grid" id="results"></div>
+    </div>
+  </section>
+
+  <!-- ② 候補 -->
+  <section class="tab" id="tab-pool">
+    <div class="toolbar">
+      <h2>候補リスト</h2>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost sm" id="clearPool">全部クリア</button>
+        <button class="btn sm" id="toWrite">選定して紹介文へ →</button>
+      </div>
+    </div>
+    <div class="stack" id="poolList"></div>
+  </section>
+
+  <!-- ③ 紹介文＆タグ -->
+  <section class="tab" id="tab-write">
+    <div class="toolbar">
+      <h2>紹介文＆ハッシュタグ</h2>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span class="muted">トーン一括:</span>
+        <div class="seg" id="toneSeg">
+          <button data-tone="polite" class="active">丁寧</button>
+          <button data-tone="casual">カジュアル</button>
+          <button data-tone="oshi">推し語り</button>
+        </div>
+        <button class="btn sm" id="regenAll">全部を再生成</button>
+      </div>
+    </div>
+    <div class="stack" id="writeList"></div>
+  </section>
+
+  <!-- ④ 投稿リスト -->
+  <section class="tab" id="tab-posts">
+    <div class="toolbar">
+      <h2>投稿リスト</h2>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost sm" id="copyAll">全部まとめてコピー</button>
+        <button class="btn sm" id="exportCsv">CSV書き出し</button>
+      </div>
+    </div>
+    <div class="stack" id="postList"></div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================================
+   楽天ROOM 投稿支援ツール  —  単一HTMLファイル / ブラウザ内で完結
+   データは localStorage に自動保存されます。
+   ========================================================================= */
+
+/* ------------------------------------------------------------------
+   ▼▼▼ 楽天APIを使うとき、ここだけ書き換えてください ▼▼▼
+   1) 楽天ウェブサービス( https://webservice.rakuten.co.jp/ )で無料の
+      アプリID(APPID)を取得
+   2) 下の APP_ID に貼り付け
+   3) USE_API を true に変更
+   これだけで、デモデータ→本物の楽天商品検索に切り替わります。UIは変更不要。
+------------------------------------------------------------------ */
+const APP_ID = "";        // ← ここに楽天のアプリIDを貼る
+const AFFILIATE_ID = "";  // ← (任意)楽天アフィリエイトIDがあれば貼る
+const USE_API  = false;   // ← APIを使うなら true に
+
+/* 商品データ取得の唯一の入口。UI側はこの関数しか呼ばない。
+   デモ⇄API の切り替えはここで吸収される。 */
+async function fetchProducts(query){
+  if(USE_API && APP_ID){
+    return await fetchFromRakuten(query);   // 本番:楽天API(JSONP)
+  }
+  return filterDemo(query);                 // デモ:内蔵サンプル
+}
+
+/* --- 本番用:楽天商品検索API(JSONPでCORS回避。キー設定後に有効化される) --- */
+function fetchFromRakuten(query){
+  return new Promise((resolve,reject)=>{
+    const cb = "rk_cb_" + Math.abs(hashStr(query.q + query.sort + Date.now()%100000));
+    const p = new URLSearchParams({
+      applicationId: APP_ID,
+      format: "json",
+      keyword: query.q || "",
+      hits: "30",
+      callback: cb
+    });
+    if(AFFILIATE_ID) p.set("affiliateId", AFFILIATE_ID);
+    if(query.minP) p.set("minPrice", query.minP);
+    if(query.maxP) p.set("maxPrice", query.maxP);
+    const sortMap={rank:"standard",reviewCount:"-reviewCount",reviewRate:"-reviewAverage",priceAsc:"+itemPrice",priceDesc:"-itemPrice"};
+    p.set("sort", sortMap[query.sort]||"standard");
+
+    window[cb]=(data)=>{
+      delete window[cb]; s.remove();
+      try{
+        let items=(data.Items||[]).map(x=>x.Item).map(it=>({
+          id: it.itemCode, name: it.itemName, price: it.itemPrice,
+          reviewCount: it.reviewCount, reviewRate: it.reviewAverage,
+          genre: (it.genreId||""), url: it.itemUrl,
+          image: (it.mediumImageUrls&&it.mediumImageUrls[0]&&it.mediumImageUrls[0].imageUrl)||"",
+          shop: it.shopName
+        }));
+        items=applyClientFilter(items,query);
+        resolve(items);
+      }catch(e){ reject(e); }
+    };
+    const s=document.createElement("script");
+    s.src="https://app.rakuten.co.jp/services/api/IchibaItem/Search/20220601?"+p.toString();
+    s.onerror=()=>{delete window[cb];reject(new Error("API接続に失敗しました"));};
+    document.head.appendChild(s);
+  });
+}
+function hashStr(s){let h=0;for(let i=0;i<s.length;i++){h=(h<<5)-h+s.charCodeAt(i)|0;}return h;}
+
+/* レビュー数/評価の絞り込みはクライアント側で共通適用 */
+function applyClientFilter(items,q){
+  return items.filter(it=>
+    (!q.minR   || it.reviewCount>=q.minR) &&
+    (!q.minRate|| it.reviewRate>=q.minRate)
+  );
+}
+
+/* =====================  デモデータ  ===================== */
+const DEMO_PRODUCTS = [
+  {id:"d1", name:"高保湿 化粧水 200mL 敏感肌用 無香料 セラミド配合", price:1480, reviewCount:2841, reviewRate:4.6, genre:"美容・コスメ", url:"https://example.com/d1", image:"", shop:"うるおい堂"},
+  {id:"d2", name:"オーガニック プロテイン チョコ味 1kg 女性向け ソイ", price:3280, reviewCount:1520, reviewRate:4.4, genre:"食品・健康", url:"https://example.com/d2", image:"", shop:"ヘルスラボ"},
+  {id:"d3", name:"ステンレス タンブラー 480mL 真空断熱 保温保冷 マット", price:1980, reviewCount:934, reviewRate:4.7, genre:"キッチン・日用品", url:"https://example.com/d3", image:"", shop:"暮らし雑貨店"},
+  {id:"d4", name:"ワイヤレスイヤホン ノイズキャンセリング 低遅延 防水IPX5", price:4990, reviewCount:5210, reviewRate:4.3, genre:"家電・ガジェット", url:"https://example.com/d4", image:"", shop:"サウンドギア"},
+  {id:"d5", name:"リネン混 ワンピース ゆったり 春夏 マット素材 大人カジュアル", price:3960, reviewCount:412, reviewRate:4.2, genre:"ファッション", url:"https://example.com/d5", image:"", shop:"apparel mono"},
+  {id:"d6", name:"珪藻土 バスマット 速乾 抗菌 60×39cm ホワイト", price:2480, reviewCount:1789, reviewRate:4.5, genre:"キッチン・日用品", url:"https://example.com/d6", image:"", shop:"暮らし雑貨店"},
+  {id:"d7", name:"美容液 ビタミンC誘導体 30mL 毛穴 くすみ 高濃度", price:2680, reviewCount:3320, reviewRate:4.5, genre:"美容・コスメ", url:"https://example.com/d7", image:"", shop:"うるおい堂"},
+  {id:"d8", name:"折りたたみ 傘 軽量 210g 自動開閉 撥水 メンズ レディース", price:2180, reviewCount:876, reviewRate:4.1, genre:"ファッション", url:"https://example.com/d8", image:"", shop:"デイリーモノ"},
+  {id:"d9", name:"ドリップコーヒー 個包装 40袋 深煎り ブレンド 香り", price:1580, reviewCount:2210, reviewRate:4.6, genre:"食品・健康", url:"https://example.com/d9", image:"", shop:"焙煎工房"},
+  {id:"d10", name:"LEDデスクライト 目に優しい 調光調色 USB クランプ式 マット黒", price:3480, reviewCount:640, reviewRate:4.4, genre:"家電・ガジェット", url:"https://example.com/d10", image:"", shop:"サウンドギア"},
+  {id:"d11", name:"エコバッグ 折りたたみ 大容量 25L 撥水 コンパクト 無地", price:1280, reviewCount:1502, reviewRate:4.5, genre:"キッチン・日用品", url:"https://example.com/d11", image:"", shop:"デイリーモノ"},
+  {id:"d12", name:"入浴剤 アソート 30個 炭酸 発汗 疲労回復 ギフト", price:2980, reviewCount:4102, reviewRate:4.7, genre:"美容・コスメ", url:"https://example.com/d12", image:"", shop:"リラクバス"},
+];
+function filterDemo(q){
+  let r=DEMO_PRODUCTS.slice();
+  if(q.q){const kws=q.q.split(/\s+/).filter(Boolean);
+    r=r.filter(it=>kws.every(k=>(it.name+it.genre).toLowerCase().includes(k.toLowerCase())));}
+  if(q.minP) r=r.filter(it=>it.price>=q.minP);
+  if(q.maxP) r=r.filter(it=>it.price<=q.maxP);
+  r=applyClientFilter(r,q);
+  const s=q.sort;
+  if(s==="reviewCount") r.sort((a,b)=>b.reviewCount-a.reviewCount);
+  else if(s==="reviewRate") r.sort((a,b)=>b.reviewRate-a.reviewRate);
+  else if(s==="priceAsc") r.sort((a,b)=>a.price-b.price);
+  else if(s==="priceDesc") r.sort((a,b)=>b.price-a.price);
+  return Promise.resolve(r);
+}
+
+/* =====================  状態(localStorage)  ===================== */
+const STORE_KEY="rakuten_room_tool_v1";
+let state = loadState();
+function loadState(){
+  try{const s=JSON.parse(localStorage.getItem(STORE_KEY));
+    if(s&&s.pool) return s;}catch(e){}
+  return {pool:{}};   // pool: id -> {product, selected, tone, intro, tags:{tag:on}}
+}
+function save(){localStorage.setItem(STORE_KEY,JSON.stringify(state));updateBadges();}
+function updateBadges(){
+  const ids=Object.keys(state.pool);
+  const selected=ids.filter(id=>state.pool[id].selected);
+  poolBadge.textContent=ids.length;
+  writeBadge.textContent=selected.length;
+  postBadge.textContent=selected.length;
+}
+
+/* =====================  紹介文・ハッシュタグ生成  ===================== */
+const STOP=["用","配合","向け","入り","タイプ","セット","個包装","本","個","枚","袋","mL","ML","kg","g","cm","対応"];
+function suggestTags(p){
+  const words=p.name.split(/[\s　・,、。\/]+/).filter(w=>w&&w.length>=2&&!/^[0-9]+$/.test(w)&&!STOP.includes(w));
+  const base=new Set();
+  words.slice(0,6).forEach(w=>base.add(w.replace(/[0-9]+(mL|ML|g|kg|cm|L)?$/,"").trim()));
+  const genreTags={"美容・コスメ":["美容","スキンケア","コスメ好きさんと繋がりたい"],
+    "食品・健康":["おうちごはん","ヘルシー","食品"],
+    "キッチン・日用品":["暮らし","日用品","シンプルライフ"],
+    "家電・ガジェット":["ガジェット","便利グッズ","家電"],
+    "ファッション":["ファッション","コーデ","大人カジュアル"]};
+  (genreTags[p.genre]||[]).forEach(t=>base.add(t));
+  ["楽天ROOM","楽天room発見隊","楽天お買い物マラソン","おすすめ"].forEach(t=>base.add(t));
+  return Array.from(base).filter(Boolean).slice(0,12);
+}
+function genIntro(p,tone){
+  const price="¥"+p.price.toLocaleString();
+  const star=p.reviewRate?("★"+p.reviewRate.toFixed(1)):"";
+  const rev=p.reviewCount?`レビュー${p.reviewCount.toLocaleString()}件`:"";
+  const proof=[star,rev].filter(Boolean).join(" / ");
+  if(tone==="casual"){
+    return `${p.name}\n\nこれ地味に良かったやつ🙆 ${price}でこの内容はコスパ高め。\n${proof?proof+"で人気だったから選んでみたよ。\n":""}気になった人はチェックしてみて!`;
+  }
+  if(tone==="oshi"){
+    return `【本気でおすすめ】${p.name}\n\nもうこれリピ確定です…! ${price}。\n${proof?proof+"の実力派。":""}正直もっと早く買えばよかった。\n迷ってる人ほど一度試してほしい逸品です🤍`;
+  }
+  // polite
+  return `${p.name}\n\n毎日を少し快適にしてくれる一品です。価格は${price}。\n${proof?proof+"と、多くの方に選ばれています。":""}\n気になる方はぜひチェックしてみてください。`;
+}
+
+/* =====================  レンダリング  ===================== */
+const el=id=>document.getElementById(id);
+const results=el("results"), poolList=el("poolList"), writeList=el("writeList"), postList=el("postList");
+const poolBadge=el("poolBadge"), writeBadge=el("writeBadge"), postBadge=el("postBadge");
+
+function thumbStyle(p){return p.image?`style="background-image:url('${p.image}')"`:"";}
+function thumbText(p){return p.image?"":"No Image";}
+
+function renderResults(list){
+  if(!list.length){results.innerHTML=`<div class="empty" style="grid-column:1/-1">条件に合う商品がありませんでした。キーワードや絞り込みを調整してみてください。</div>`;return;}
+  results.innerHTML=list.map(p=>{
+    const inPool=!!state.pool[p.id];
+    return `<div class="card">
+      <div class="thumb" ${thumbStyle(p)}>${thumbText(p)}</div>
+      <div class="body">
+        <div class="name" title="${esc(p.name)}">${esc(p.name)}</div>
+        <div class="price">¥${p.price.toLocaleString()}</div>
+        <div class="meta"><span class="stars">${stars(p.reviewRate)}</span><span>${p.reviewRate?p.reviewRate.toFixed(1):"-"}</span><span>(${p.reviewCount.toLocaleString()})</span></div>
+        <div class="meta">${esc(p.genre)}</div>
+      </div>
+      <div class="foot">
+        <button class="btn ${inPool?'ghost':''} sm" style="width:100%" data-add="${p.id}">${inPool?'✓ 候補に追加済み':'＋ 候補に追加'}</button>
+      </div>
+    </div>`;
+  }).join("");
+  results.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{
+    const p=list.find(x=>x.id===b.dataset.add);
+    if(state.pool[p.id]){toast("すでに候補にあります");return;}
+    state.pool[p.id]={product:p,selected:true,tone:currentTone,intro:"",tags:{}};
+    save();renderResults(list);renderPool();toast("候補に追加しました");
+  });
+}
+function stars(r){r=r||0;const full=Math.round(r);return "★★★★★".slice(0,full)+"☆☆☆☆☆".slice(0,5-full);}
+
+function renderPool(){
+  const ids=Object.keys(state.pool);
+  if(!ids.length){poolList.innerHTML=`<div class="empty">候補がまだありません。「① 検索」で商品を追加してください。</div>`;return;}
+  poolList.innerHTML=ids.map(id=>{
+    const e=state.pool[id],p=e.product;
+    return `<div class="item">
+      <label class="checkline"><input type="checkbox" data-sel="${id}" ${e.selected?'checked':''}></label>
+      <div class="thumb" ${thumbStyle(p)}></div>
+      <div class="grow">
+        <div class="name">${esc(p.name)}</div>
+        <div class="meta muted">¥${p.price.toLocaleString()} ・ ★${p.reviewRate?p.reviewRate.toFixed(1):'-'} ・ レビュー${p.reviewCount.toLocaleString()}件 ・ ${esc(p.genre)}</div>
+      </div>
+      <button class="btn danger sm" data-del="${id}">除外</button>
+    </div>`;
+  }).join("");
+  poolList.querySelectorAll("[data-sel]").forEach(c=>c.onchange=()=>{
+    state.pool[c.dataset.sel].selected=c.checked;save();});
+  poolList.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{
+    delete state.pool[b.dataset.del];save();renderPool();});
+}
+
+function renderWrite(){
+  const ids=Object.keys(state.pool).filter(id=>state.pool[id].selected);
+  if(!ids.length){writeList.innerHTML=`<div class="empty">選定された商品がありません。「② 候補リスト」でチェックを入れてください。</div>`;return;}
+  writeList.innerHTML=ids.map(id=>{
+    const e=state.pool[id],p=e.product;
+    if(!e.intro) e.intro=genIntro(p,e.tone||"polite");
+    const suggested=suggestTags(p);
+    // 初回はサジェスト上位をONに
+    if(Object.keys(e.tags).length===0){suggested.slice(0,6).forEach(t=>e.tags[t]=true);}
+    const allTags=Array.from(new Set([...Object.keys(e.tags),...suggested]));
+    return `<div class="postcard">
+      <div class="hd"><span class="name">${esc(p.name)}</span>
+        <div class="seg" data-toneseg="${id}">
+          <button data-t="polite" class="${(e.tone||'polite')==='polite'?'active':''}">丁寧</button>
+          <button data-t="casual" class="${e.tone==='casual'?'active':''}">カジュアル</button>
+          <button data-t="oshi" class="${e.tone==='oshi'?'active':''}">推し語り</button>
+        </div>
+      </div>
+      <div class="bd">
+        <div class="split">
+          <div class="field">
+            <label>紹介文(編集できます)</label>
+            <textarea data-intro="${id}">${esc(e.intro)}</textarea>
+            <button class="btn ghost sm" data-regen="${id}" style="align-self:flex-start;margin-top:6px">この紹介文を再生成</button>
+          </div>
+          <div class="field">
+            <label>ハッシュタグ(クリックでON/OFF)</label>
+            <div>${allTags.map(t=>`<span class="tag ${e.tags[t]?'on':''}" data-tag="${id}::${esc(t)}">#${esc(t)}</span>`).join(" ")}</div>
+            <div class="muted" style="margin-top:8px">選択中: <span data-tagcount="${id}">${Object.values(e.tags).filter(Boolean).length}</span>個</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+
+  writeList.querySelectorAll("[data-intro]").forEach(t=>t.oninput=()=>{
+    state.pool[t.dataset.intro].intro=t.value;save();});
+  writeList.querySelectorAll("[data-regen]").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.regen,e=state.pool[id];e.intro=genIntro(e.product,e.tone||"polite");save();renderWrite();});
+  writeList.querySelectorAll("[data-toneseg]").forEach(seg=>{
+    seg.querySelectorAll("button").forEach(btn=>btn.onclick=()=>{
+      const id=seg.dataset.toneseg,e=state.pool[id];e.tone=btn.dataset.t;e.intro=genIntro(e.product,e.tone);save();renderWrite();});
+  });
+  writeList.querySelectorAll("[data-tag]").forEach(tg=>tg.onclick=()=>{
+    const [id,tag]=tg.dataset.tag.split("::");const e=state.pool[id];
+    e.tags[tag]=!e.tags[tag];save();renderWrite();});
+}
+
+function buildPostText(e){
+  const p=e.product;
+  const tags=Object.keys(e.tags).filter(t=>e.tags[t]).map(t=>"#"+t).join(" ");
+  return `${e.intro}\n\n${tags}\n${p.url}`;
+}
+function renderPosts(){
+  const ids=Object.keys(state.pool).filter(id=>state.pool[id].selected);
+  if(!ids.length){postList.innerHTML=`<div class="empty">投稿対象がありません。商品を選定し、紹介文を用意してください。</div>`;return;}
+  postList.innerHTML=ids.map((id,i)=>{
+    const e=state.pool[id];if(!e.intro)e.intro=genIntro(e.product,e.tone||"polite");
+    const text=buildPostText(e);
+    return `<div class="postcard">
+      <div class="hd"><span class="name">投稿 ${i+1} ・ ${esc(e.product.name)}</span>
+        <button class="btn sm" data-copy="${id}">この投稿をコピー</button></div>
+      <div class="bd"><div class="preview" id="pv-${id}">${esc(text)}</div></div>
+    </div>`;
+  }).join("");
+  postList.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{
+    copy(buildPostText(state.pool[b.dataset.copy]));toast("コピーしました");});
+}
+
+/* =====================  共通UI  ===================== */
+function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function copy(text){
+  if(navigator.clipboard){navigator.clipboard.writeText(text).catch(()=>fallbackCopy(text));}
+  else fallbackCopy(text);
+}
+function fallbackCopy(text){const t=document.createElement("textarea");t.value=text;document.body.appendChild(t);t.select();try{document.execCommand("copy");}catch(e){}t.remove();}
+let toastTimer;
+function toast(msg){const t=el("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),1600);}
+
+/* =====================  タブ切り替え  ===================== */
+let currentTone="polite";
+el("nav").querySelectorAll("button").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+function showTab(name){
+  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+  el("nav").querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));
+  el("tab-"+name).classList.add("active");
+  if(name==="pool")renderPool();
+  if(name==="write")renderWrite();
+  if(name==="posts")renderPosts();
+}
+
+/* =====================  イベント  ===================== */
+let lastResults=[];
+el("searchBtn").onclick=doSearch;
+el("q").addEventListener("keydown",e=>{if(e.key==="Enter")doSearch();});
+async function doSearch(){
+  const q={
+    q:el("q").value.trim(),
+    minP:+el("minP").value||0, maxP:+el("maxP").value||0,
+    minR:+el("minR").value||0, minRate:+el("minRate").value||0,
+    sort:el("sort").value
+  };
+  results.innerHTML=`<div class="empty" style="grid-column:1/-1">検索中…</div>`;
+  try{lastResults=await fetchProducts(q);renderResults(lastResults);}
+  catch(e){results.innerHTML=`<div class="empty" style="grid-column:1/-1">取得に失敗しました:${esc(e.message||e)}</div>`;}
+}
+
+el("clearPool").onclick=()=>{if(confirm("候補リストを全部消しますか?")){state.pool={};save();renderPool();}};
+el("toWrite").onclick=()=>showTab("write");
+el("regenAll").onclick=()=>{Object.values(state.pool).forEach(e=>{if(e.selected)e.intro=genIntro(e.product,e.tone||"polite");});save();renderWrite();toast("再生成しました");};
+el("toneSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+  el("toneSeg").querySelectorAll("button").forEach(x=>x.classList.remove("active"));
+  b.classList.add("active");currentTone=b.dataset.tone;
+  Object.values(state.pool).forEach(e=>{if(e.selected){e.tone=currentTone;e.intro=genIntro(e.product,currentTone);}});
+  save();renderWrite();
+});
+el("copyAll").onclick=()=>{
+  const ids=Object.keys(state.pool).filter(id=>state.pool[id].selected);
+  if(!ids.length){toast("投稿がありません");return;}
+  const all=ids.map((id,i)=>`── 投稿 ${i+1} ──\n`+buildPostText(state.pool[id])).join("\n\n\n");
+  copy(all);toast(ids.length+"件をまとめてコピーしました");
+};
+el("exportCsv").onclick=()=>{
+  const ids=Object.keys(state.pool).filter(id=>state.pool[id].selected);
+  if(!ids.length){toast("投稿がありません");return;}
+  const rows=[["No","商品名","価格","評価","レビュー数","紹介文","ハッシュタグ","URL"]];
+  ids.forEach((id,i)=>{const e=state.pool[id],p=e.product;
+    const tags=Object.keys(e.tags).filter(t=>e.tags[t]).map(t=>"#"+t).join(" ");
+    rows.push([i+1,p.name,p.price,p.reviewRate,p.reviewCount,e.intro.replace(/\n/g," "),tags,p.url]);});
+  const csv="﻿"+rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
+  const blob=new Blob([csv],{type:"text/csv"});const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download="rakuten_room_posts.csv";a.click();
+  toast("CSVを書き出しました");
+};
+
+/* =====================  初期化  ===================== */
+if(USE_API&&APP_ID){el("dataBanner").innerHTML="楽天API接続中。本物の商品検索が使えます。";}
+updateBadges();
+doSearch();  // 起動時にデモ一覧を表示
+</script>
+</body>
+</html>
