@@ -502,6 +502,11 @@ async function doSearch(){
     minR:+el("minR").value||0, minRate:+el("minRate").value||0,
     sort:el("sort").value
   };
+  // 本番API はキーワード必須。空なら叩かず案内を出す。
+  if(USE_API && APP_ID && ACCESS_KEY && !q.q){
+    results.innerHTML=`<div class="empty" style="grid-column:1/-1">上のキーワード欄に、探したい商品名やジャンル(例:化粧水、プロテイン、タンブラー)を入れて「検索」を押してください。</div>`;
+    return;
+  }
   results.innerHTML=`<div class="empty" style="grid-column:1/-1">検索中…</div>`;
   try{lastResults=await fetchProducts(q);renderResults(lastResults);}
   catch(e){results.innerHTML=`<div class="empty" style="grid-column:1/-1">取得に失敗しました:${esc(e.message||e)}</div>`;}
