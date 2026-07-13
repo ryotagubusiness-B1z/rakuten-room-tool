@@ -176,6 +176,7 @@
         <button class="btn sm" id="regenAll">全部を再生成</button>
       </div>
     </div>
+    <div class="banner"><b>未購入の商品にも対応</b> 商品名・価格・レビュー情報をもとに、購入や使用の経験があると受け取られない紹介文を生成します。</div>
     <div class="stack" id="writeList"></div>
   </section>
 
@@ -300,11 +301,27 @@ function filterDemo(q){
 
 /* =====================  状態(localStorage)  ===================== */
 const STORE_KEY="rakuten_room_tool_v1";
+const INTRO_COPY_VERSION=2;
 let state = loadState();
 function loadState(){
-  try{const s=JSON.parse(localStorage.getItem(STORE_KEY));
-    if(s&&s.pool) return s;}catch(e){}
-  return {pool:{}};   // pool: id -> {product, selected, tone, intro, tags:{tag:on}}
+  try{
+    const s=JSON.parse(localStorage.getItem(STORE_KEY));
+    if(s&&s.pool){
+      let migrated=false;
+      Object.values(s.pool).forEach(e=>{
+        if(!e||!e.product) return;
+        if(!e.tags){e.tags={};migrated=true;}
+        if(e.introVersion!==INTRO_COPY_VERSION){
+          if(e.intro) regenerateIntro(e,e.tone||"polite");
+          else e.introVersion=INTRO_COPY_VERSION;
+          migrated=true;
+        }
+      });
+      if(migrated) localStorage.setItem(STORE_KEY,JSON.stringify(s));
+      return s;
+    }
+  }catch(e){}
+  return {pool:{}};   // pool: id -> {product, selected, tone, intro, introVersion, tags:{tag:on}}
 }
 function save(){localStorage.setItem(STORE_KEY,JSON.stringify(state));updateBadges();}
 function updateBadges(){
@@ -336,13 +353,19 @@ function genIntro(p,tone){
   const rev=p.reviewCount?`レビュー${p.reviewCount.toLocaleString()}件`:"";
   const proof=[star,rev].filter(Boolean).join(" / ");
   if(tone==="casual"){
-    return `${p.name}\n\nこれ地味に良かったやつ🙆 ${price}でこの内容はコスパ高め。\n${proof?proof+"で人気だったから選んでみたよ。\n":""}気になった人はチェックしてみて!`;
+    return `${p.name}\n\n${price}で見つけた、気になるアイテムです。\n${proof?proof+"の商品です。\n":""}カラーや詳しい仕様は商品ページでチェックしてみてください!`;
   }
   if(tone==="oshi"){
-    return `【本気でおすすめ】${p.name}\n\nもうこれリピ確定です…! ${price}。\n${proof?proof+"の実力派。":""}正直もっと早く買えばよかった。\n迷ってる人ほど一度試してほしい逸品です🤍`;
+    return `【これはチェックしたい】${p.name}\n\n気になるアイテムとしてご紹介🤍 価格は${price}。\n${proof?proof+"の商品です。\n":""}カラーや詳しい仕様は、商品ページでチェックしてみてください。`;
   }
   // polite
-  return `${p.name}\n\n毎日を少し快適にしてくれる一品です。価格は${price}。\n${proof?proof+"と、多くの方に選ばれています。":""}\n気になる方はぜひチェックしてみてください。`;
+  return `${p.name}\n\n価格は${price}。${proof?proof+"の商品です。":""}\n商品の仕様やカラーバリエーションは、商品ページからご確認いただけます。\n気になる方はぜひチェックしてみてください。`;
+}
+function regenerateIntro(e,tone){
+  e.tone=tone||"polite";
+  e.intro=genIntro(e.product,e.tone);
+  e.introVersion=INTRO_COPY_VERSION;
+  return e.intro;
 }
 
 /* =====================  レンダリング  ===================== */
@@ -373,7 +396,7 @@ function renderResults(list){
   results.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{
     const p=list.find(x=>x.id===b.dataset.add);
     if(state.pool[p.id]){toast("すでに候補にあります");return;}
-    state.pool[p.id]={product:p,selected:true,tone:currentTone,intro:"",tags:{}};
+    state.pool[p.id]={product:p,selected:true,tone:currentTone,intro:"",introVersion:INTRO_COPY_VERSION,tags:{}};
     save();renderResults(list);renderPool();toast("候補に追加しました");
   });
 }
@@ -405,7 +428,7 @@ function renderWrite(){
   if(!ids.length){writeList.innerHTML=`<div class="empty">選定された商品がありません。「② 候補リスト」でチェックを入れてください。</div>`;return;}
   writeList.innerHTML=ids.map(id=>{
     const e=state.pool[id],p=e.product;
-    if(!e.intro) e.intro=genIntro(p,e.tone||"polite");
+    if(!e.intro) regenerateIntro(e,e.tone||"polite");
     const suggested=suggestTags(p);
     // 初回はサジェスト上位をONに
     if(Object.keys(e.tags).length===0){suggested.slice(0,6).forEach(t=>e.tags[t]=true);}
@@ -436,12 +459,12 @@ function renderWrite(){
   }).join("");
 
   writeList.querySelectorAll("[data-intro]").forEach(t=>t.oninput=()=>{
-    state.pool[t.dataset.intro].intro=t.value;save();});
+    const e=state.pool[t.dataset.intro];e.intro=t.value;e.introVersion=INTRO_COPY_VERSION;save();});
   writeList.querySelectorAll("[data-regen]").forEach(b=>b.onclick=()=>{
-    const id=b.dataset.regen,e=state.pool[id];e.intro=genIntro(e.product,e.tone||"polite");save();renderWrite();});
+    const id=b.dataset.regen,e=state.pool[id];regenerateIntro(e,e.tone||"polite");save();renderWrite();});
   writeList.querySelectorAll("[data-toneseg]").forEach(seg=>{
     seg.querySelectorAll("button").forEach(btn=>btn.onclick=()=>{
-      const id=seg.dataset.toneseg,e=state.pool[id];e.tone=btn.dataset.t;e.intro=genIntro(e.product,e.tone);save();renderWrite();});
+      const id=seg.dataset.toneseg,e=state.pool[id];regenerateIntro(e,btn.dataset.t);save();renderWrite();});
   });
   writeList.querySelectorAll("[data-tag]").forEach(tg=>tg.onclick=()=>{
     const [id,tag]=tg.dataset.tag.split("::");const e=state.pool[id];
@@ -457,7 +480,7 @@ function renderPosts(){
   const ids=Object.keys(state.pool).filter(id=>state.pool[id].selected);
   if(!ids.length){postList.innerHTML=`<div class="empty">投稿対象がありません。商品を選定し、紹介文を用意してください。</div>`;return;}
   postList.innerHTML=ids.map((id,i)=>{
-    const e=state.pool[id];if(!e.intro)e.intro=genIntro(e.product,e.tone||"polite");
+    const e=state.pool[id];if(!e.intro)regenerateIntro(e,e.tone||"polite");
     const text=buildPostText(e);
     return `<div class="postcard">
       <div class="hd"><span class="name">投稿 ${i+1} ・ ${esc(e.product.name)}</span>
@@ -514,11 +537,11 @@ async function doSearch(){
 
 el("clearPool").onclick=()=>{if(confirm("候補リストを全部消しますか?")){state.pool={};save();renderPool();}};
 el("toWrite").onclick=()=>showTab("write");
-el("regenAll").onclick=()=>{Object.values(state.pool).forEach(e=>{if(e.selected)e.intro=genIntro(e.product,e.tone||"polite");});save();renderWrite();toast("再生成しました");};
+el("regenAll").onclick=()=>{Object.values(state.pool).forEach(e=>{if(e.selected)regenerateIntro(e,e.tone||"polite");});save();renderWrite();toast("再生成しました");};
 el("toneSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{
   el("toneSeg").querySelectorAll("button").forEach(x=>x.classList.remove("active"));
   b.classList.add("active");currentTone=b.dataset.tone;
-  Object.values(state.pool).forEach(e=>{if(e.selected){e.tone=currentTone;e.intro=genIntro(e.product,currentTone);}});
+  Object.values(state.pool).forEach(e=>{if(e.selected)regenerateIntro(e,currentTone);});
   save();renderWrite();
 });
 el("copyAll").onclick=()=>{
