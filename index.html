@@ -301,7 +301,7 @@ function filterDemo(q){
 
 /* =====================  状態(localStorage)  ===================== */
 const STORE_KEY="rakuten_room_tool_v1";
-const INTRO_COPY_VERSION=2;
+const INTRO_COPY_VERSION=3;
 let state = loadState();
 function loadState(){
   try{
@@ -353,13 +353,13 @@ function genIntro(p,tone){
   const rev=p.reviewCount?`レビュー${p.reviewCount.toLocaleString()}件`:"";
   const proof=[star,rev].filter(Boolean).join(" / ");
   if(tone==="casual"){
-    return `${p.name}\n\n${price}で見つけた、気になるアイテムです。\n${proof?proof+"の商品です。\n":""}カラーや詳しい仕様は商品ページでチェックしてみてください!`;
+    return `${p.name}\n\n${price}で見つけた、気になるアイテムです。\n${proof?proof+"の商品です。\n":""}詳しい商品情報は商品ページでチェックしてみてください!`;
   }
   if(tone==="oshi"){
-    return `【これはチェックしたい】${p.name}\n\n気になるアイテムとしてご紹介🤍 価格は${price}。\n${proof?proof+"の商品です。\n":""}カラーや詳しい仕様は、商品ページでチェックしてみてください。`;
+    return `【これはチェックしたい】${p.name}\n\n気になるアイテムとしてご紹介🤍 価格は${price}。\n${proof?proof+"の商品です。\n":""}詳しい商品情報は、商品ページでチェックしてみてください。`;
   }
   // polite
-  return `${p.name}\n\n価格は${price}。${proof?proof+"の商品です。":""}\n商品の仕様やカラーバリエーションは、商品ページからご確認いただけます。\n気になる方はぜひチェックしてみてください。`;
+  return `${p.name}\n\n価格は${price}。${proof?proof+"の商品です。":""}\n商品の詳しい情報は、商品ページからご確認いただけます。\n気になる方はぜひチェックしてみてください。`;
 }
 function regenerateIntro(e,tone){
   e.tone=tone||"polite";
