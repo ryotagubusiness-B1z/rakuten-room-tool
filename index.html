@@ -304,8 +304,9 @@ function filterDemo(q){
 
 /* =====================  状態(localStorage)  ===================== */
 const STORE_KEY="rakuten_room_tool_v1";
-const INTRO_COPY_VERSION=4;
-let state = loadState();
+const INTRO_COPY_VERSION=5;
+const TAG_SUGGEST_VERSION=2;
+let state;
 function loadState(){
   try{
     const s=JSON.parse(localStorage.getItem(STORE_KEY));
@@ -314,6 +315,12 @@ function loadState(){
       Object.values(s.pool).forEach(e=>{
         if(!e||!e.product) return;
         if(!e.tags){e.tags={};migrated=true;}
+        if(e.tagVersion!==TAG_SUGGEST_VERSION){
+          // 旧版の商品名由来タグには販促表記や重複語が含まれるため、v5で作り直す
+          e.tags={};
+          e.tagVersion=TAG_SUGGEST_VERSION;
+          migrated=true;
+        }
         if(e.introVersion!==INTRO_COPY_VERSION){
           if(e.intro) regenerateIntro(e,e.tone||"polite");
           else e.introVersion=INTRO_COPY_VERSION;
@@ -324,7 +331,7 @@ function loadState(){
       return s;
     }
   }catch(e){}
-  return {pool:{}};   // pool: id -> {product, selected, tone, intro, introVersion, tags:{tag:on}}
+  return {pool:{}};   // pool: id -> {product, selected, tone, intro, introVersion, tags, tagVersion}
 }
 function save(){localStorage.setItem(STORE_KEY,JSON.stringify(state));updateBadges();}
 function updateBadges(){
@@ -336,29 +343,135 @@ function updateBadges(){
 }
 
 /* =====================  紹介文・ハッシュタグ生成  ===================== */
-const STOP=["用","配合","向け","入り","タイプ","セット","個包装","本","個","枚","袋","mL","ML","kg","g","cm","対応"];
+const PROMO_WORDS=/(?:クーポン|ポイント\s*\d+倍|P\s*\d+倍|\d+(?:\.\d+)?\s*(?:%|％)\s*(?:OFF|オフ|割引)|半額|(?:SALE|セール)|ランキング|楽天(?:市場)?(?:総合|デイリー|週間|月間)?\s*\d+位|\d+冠|最安|特価|お買い得|今だけ|本日限定|期間限定|店内全品|送料無料|スーパーSALE|楽天SS|お買い物マラソン|マラソン期間)/i;
+const PRODUCT_CATEGORIES=[
+  "ワイヤレスイヤホン","モバイルバッテリー","スマートウォッチ","ノイズキャンセリングイヤホン",
+  "折りたたみ日傘","折りたたみ傘","フェイスクリーム","トリートメント","ファンデーション",
+  "ステンレスタンブラー","ボトルスタンド","水切りラック","デスクライト","サーキュレーター","バスマット","エコバッグ",
+  "プロテイン","ワンピース","化粧水","美容液","シャンプー","タンブラー","コーヒー",
+  "ドライヤー","ヘッドホン","イヤホン","スニーカー","マットレス","入浴剤","収納ケース",
+  "フライパン","マグカップ","ペットフード","日傘","雨傘","長傘","帽子","バッグ","リュック",
+  "財布","ブラウス","スカート","サンダル","タオル","枕","掛け布団","チェア","テーブル",
+  "掃除機","扇風機","加湿器","炊飯器","トースター","電子レンジ","クリーム","乳液","お茶",
+  "お米","絵本","おもちゃ","パンツ","包丁","傘"
+];
+const FEATURE_STOP=new Set(["レディース","メンズ","男女兼用","ユニセックス","女性向け","男性向け","大人","キッズ","ベビー","新品","正規品","公式","おすすめ","人気","商品","タワー"]);
+
+function normalizeProductText(value){
+  return String(value||"").normalize("NFKC").replace(/[\u200B-\u200D\uFEFF]/g,"").replace(/\s+/g," ").trim();
+}
+function stripPromoText(value){
+  let text=normalizeProductText(value);
+  // 販促語を含む括弧だけを内容ごと除去し、仕様を示す括弧は中身を残す
+  const blocks=[/【[^】]*】/g,/\[[^\]]*\]/g,/《[^》]*》/g,/〈[^〉]*〉/g,/＜[^＞]*＞/g,/\([^)]*\)/g,/（[^）]*）/g,/＼[^／]*／/g];
+  blocks.forEach(re=>{text=text.replace(re,block=>PROMO_WORDS.test(block)?" ":` ${block.slice(1,-1)} `);});
+  text=text
+    .replace(/楽天(?:市場)?(?:総合|デイリー|週間|月間|年間)?(?:ランキング)?\s*\d+\s*位(?:\d+\s*冠)?/gi," ")
+    .replace(/(?:年間)?ランキング受賞/gi," ")
+    .replace(/(?:最大|店内全品)?\s*\d+(?:\.\d+)?\s*(?:%|％)\s*(?:OFF|オフ|割引)/gi," ")
+    .replace(/クーポン(?:利用)?(?:で|配布中|対象|価格)?/gi," ")
+    .replace(/(?:最安|特価)?\s*\d[\d,]*(?:円)(?:から|より|~|～|-)?/g," ")
+    .replace(/(?:送料無料|今すぐ使える|今だけ|本日限定|期間限定|店内全品|お買い得)/g," ")
+    .replace(/[!！★☆◆◇■□●○◎]+/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+  return text;
+}
+function tokenizeProductName(value){
+  return stripPromoText(value).split(/[\s　・,、。/／|｜:：;；]+/).map(token=>token.replace(/^[「」『』【】\[\]《》〈〉＜＞()（）]+|[「」『』【】\[\]《》〈〉＜＞()（）]+$/g,"").trim()).filter(token=>{
+    if(!token||PROMO_WORDS.test(token)) return false;
+    if(/^\d[\d,.]*(?:円|%|％)?(?:~|～|-)?$/.test(token)) return false;
+    return true;
+  });
+}
+function findProductSubject(cleanedName,tokens){
+  const joined=cleanedName.replace(/\s+/g,"");
+  let found="",foundAt=Infinity;
+  PRODUCT_CATEGORIES.forEach(category=>{
+    const at=joined.indexOf(category);
+    if(at>=0&&(at<foundAt||(at===foundAt&&category.length>found.length))){found=category;foundAt=at;}
+  });
+  if(found) return found;
+  const fallback=tokens.find(token=>!FEATURE_STOP.has(token)&&!/^\d/.test(token)&&token.length>=2)||"商品";
+  return fallback.slice(0,24);
+}
+function featureGroup(token){
+  if(/軽量|\d+g/i.test(token)) return "weight";
+  if(/UV|紫外線|遮光/i.test(token)) return "sun";
+  if(/自動開閉|ワンタッチ/.test(token)) return "open";
+  if(/防水|撥水/.test(token)) return "water";
+  if(/保温|保冷|断熱/.test(token)) return "temperature";
+  if(/収納/.test(token)) return "storage";
+  if(/速乾|乾燥|乾かす/.test(token)) return "dry";
+  if(/折りたた|コンパクト/.test(token)) return "portable";
+  return token.toLowerCase().replace(/[^\p{L}\p{N}]/gu,"");
+}
+function isStrongFeature(token){
+  return /完全|超|高|100|自動|形状記憶|晴雨兼用|真空断熱|速乾|乾燥|乾かす|収納|抗菌|防水|撥水|保温|保冷|無香料|低遅延|ノイズキャンセリング|調光|調色|大容量|コンパクト|洗える|遮熱|丈夫|セラミド|オーガニック/i.test(token);
+}
+function featureScore(token,index){
+  let score=100-index;
+  if(isStrongFeature(token)) score+=100;
+  return score;
+}
+function extractProductFeatures(tokens,subject){
+  const candidates=[];
+  tokens.forEach((raw,index)=>{
+    let token=raw;
+    if(token===subject) return;
+    if(subject!=="商品"&&token.includes(subject)) token=token.split(subject).join("");
+    token=token.replace(/^[\-+]+|[\-+]+$/g,"").trim();
+    if(!token||token===subject||FEATURE_STOP.has(token)||PROMO_WORDS.test(token)) return;
+    if(/^\d+(?:\.\d+)?(?:mL|ml|ML|L|kg|g|cm|mm|本|個|枚|袋|段)$/i.test(token)) return;
+    if(/^(?:春|夏|秋|冬|春夏|秋冬)$/.test(token)) return;
+    if(/^[A-Za-z][A-Za-z0-9._-]{2,}$/.test(token)&&!/^(?:UV|IPX|LED|USB)/i.test(token)) return;
+    if(/(?:株式会社|有限会社|実業|工業|産業|商店|本舗)$/.test(token)) return;
+    if(/(?:傘|化粧水|美容液|イヤホン|ワンピース|タンブラー|バッグ|帽子)$/.test(token)) return;
+    candidates.push({token,index,score:featureScore(token,index),group:featureGroup(token),strong:isStrongFeature(token)});
+  });
+  candidates.sort((a,b)=>b.score-a.score||a.index-b.index);
+  const strongCandidates=candidates.filter(item=>item.strong);
+  const ranked=strongCandidates.length>=2?strongCandidates:candidates;
+  const groups=new Set(),features=[];
+  ranked.forEach(item=>{
+    if(features.length>=3||groups.has(item.group)) return;
+    if(features.some(existing=>existing.includes(item.token)||item.token.includes(existing))) return;
+    groups.add(item.group);features.push(item.token);
+  });
+  return features;
+}
+function summarizeProduct(p){
+  const cleanedName=stripPromoText(p.name);
+  const tokens=tokenizeProductName(p.name);
+  const subject=findProductSubject(cleanedName,tokens);
+  return {subject,features:extractProductFeatures(tokens,subject),cleanedName};
+}
 function suggestTags(p){
-  const words=p.name.split(/[\s　・,、。\/]+/).filter(w=>w&&w.length>=2&&!/^[0-9]+$/.test(w)&&!STOP.includes(w));
   const base=new Set();
-  words.slice(0,6).forEach(w=>base.add(w.replace(/[0-9]+(mL|ML|g|kg|cm|L)?$/,"").trim()));
+  const summary=summarizeProduct(p);
+  if(summary.subject!=="商品") base.add(summary.subject);
+  summary.features.forEach(feature=>base.add(feature));
   const genreTags={"美容・コスメ":["美容","スキンケア","コスメ好きさんと繋がりたい"],
     "食品・健康":["おうちごはん","ヘルシー","食品"],
     "キッチン・日用品":["暮らし","日用品","シンプルライフ"],
     "家電・ガジェット":["ガジェット","便利グッズ","家電"],
     "ファッション":["ファッション","コーデ","大人カジュアル"]};
   (genreTags[p.genre]||[]).forEach(t=>base.add(t));
-  ["楽天ROOM","楽天room発見隊","楽天お買い物マラソン","おすすめ"].forEach(t=>base.add(t));
+  ["楽天ROOM","楽天room発見隊","おすすめ"].forEach(t=>base.add(t));
   return Array.from(base).filter(Boolean).slice(0,12);
 }
 function genIntro(p,tone){
+  const {subject,features}=summarizeProduct(p);
+  const featureText=features.length?`${features.join("・")}といった特徴があります。`:"特徴や仕様を確認しておきたいアイテムです。";
   if(tone==="casual"){
-    return `${p.name}\n\n気になるアイテムを見つけました。\n詳しい商品情報は商品ページでチェックしてみてください!`;
+    return `気になる${subject}をピックアップ。\n${featureText}\n詳しくは商品ページを見てみてください。`;
   }
   if(tone==="oshi"){
-    return `【これはチェックしたい】${p.name}\n\n気になるアイテムとしてご紹介🤍\n詳しい商品情報は、商品ページでチェックしてみてください。`;
+    const pointText=features.length?`${features.join("・")}など、気になるポイントがそろっています。`:"特徴や仕様が気になるアイテムです。";
+    return `注目したい${subject}をピックアップ🤍\n${pointText}\n詳しくは商品ページでチェックしてみてください。`;
   }
   // polite
-  return `${p.name}\n\n商品の詳しい情報は、商品ページからご確認いただけます。\n気になる方はぜひチェックしてみてください。`;
+  return `${subject}の中から、気になるアイテムをピックアップしました。\n${featureText}\n詳しい仕様やカラーは、商品ページでご確認ください。`;
 }
 function regenerateIntro(e,tone){
   e.tone=tone||"polite";
@@ -366,6 +479,7 @@ function regenerateIntro(e,tone){
   e.introVersion=INTRO_COPY_VERSION;
   return e.intro;
 }
+state=loadState();
 
 /* =====================  レンダリング  ===================== */
 const el=id=>document.getElementById(id);
@@ -395,7 +509,7 @@ function renderResults(list){
   results.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{
     const p=list.find(x=>x.id===b.dataset.add);
     if(state.pool[p.id]){toast("すでに候補にあります");return;}
-    state.pool[p.id]={product:p,selected:true,tone:currentTone,intro:"",introVersion:INTRO_COPY_VERSION,tags:{}};
+    state.pool[p.id]={product:p,selected:true,tone:currentTone,intro:"",introVersion:INTRO_COPY_VERSION,tags:{},tagVersion:TAG_SUGGEST_VERSION};
     save();renderResults(list);renderPool();toast("候補に追加しました");
   });
 }
