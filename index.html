@@ -39,7 +39,8 @@
   input:focus,select:focus,textarea:focus{border-color:var(--ink)}
   textarea{resize:vertical;width:100%;min-height:96px;line-height:1.55}
   .btn{border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);
-    padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:.02em;transition:.15s}
+    padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;letter-spacing:.02em;transition:.15s;
+    display:inline-flex;align-items:center;justify-content:center;line-height:1.3;text-decoration:none;font-family:inherit}
   .btn:hover{opacity:.86}
   .btn.ghost{background:#fff;color:var(--ink);border-color:var(--line2)}
   .btn.ghost:hover{border-color:var(--ink);opacity:1}
@@ -71,10 +72,11 @@
   .postcard .hd{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);gap:10px}
   .postcard .hd .name{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .postcard .bd{padding:14px}
+  .post-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
   .preview{background:#fafafa;border:1px dashed var(--line2);border-radius:8px;padding:12px;font-size:13px;white-space:pre-wrap;line-height:1.65}
   .muted{color:var(--sub);font-size:12px}
   .split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  @media(max-width:640px){.split{grid-template-columns:1fr}}
+  @media(max-width:640px){.split{grid-template-columns:1fr}.post-actions{width:100%}.post-actions .btn{flex:1}}
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);
     background:var(--ink);color:#fff;padding:11px 20px;border-radius:999px;font-size:13px;opacity:0;
     transition:.25s;pointer-events:none;z-index:50;box-shadow:var(--shadow)}
@@ -176,7 +178,7 @@
         <button class="btn sm" id="regenAll">全部を再生成</button>
       </div>
     </div>
-    <div class="banner"><b>未購入の商品にも対応</b> 商品名・価格・レビュー情報をもとに、購入や使用の経験があると受け取られない紹介文を生成します。</div>
+    <div class="banner"><b>未購入の商品にも対応</b> 商品名をもとに、購入や使用の経験があると受け取られない紹介文を生成します。変動しやすい価格・レビュー情報は本文へ入れません。</div>
     <div class="stack" id="writeList"></div>
   </section>
 
@@ -185,10 +187,11 @@
     <div class="toolbar">
       <h2>投稿リスト</h2>
       <div style="display:flex;gap:8px">
-        <button class="btn ghost sm" id="copyAll">全部まとめてコピー</button>
+        <button class="btn ghost sm" id="copyAll">紹介文をまとめてコピー</button>
         <button class="btn sm" id="exportCsv">CSV書き出し</button>
       </div>
     </div>
+    <div class="banner"><b>投稿は3ステップ</b> ①紹介文をコピー ②商品ページを開いてROOMアイコンを押す ③紹介文を貼り付けて投稿します。</div>
     <div class="stack" id="postList"></div>
   </section>
 
@@ -301,7 +304,7 @@ function filterDemo(q){
 
 /* =====================  状態(localStorage)  ===================== */
 const STORE_KEY="rakuten_room_tool_v1";
-const INTRO_COPY_VERSION=3;
+const INTRO_COPY_VERSION=4;
 let state = loadState();
 function loadState(){
   try{
@@ -348,18 +351,14 @@ function suggestTags(p){
   return Array.from(base).filter(Boolean).slice(0,12);
 }
 function genIntro(p,tone){
-  const price="¥"+p.price.toLocaleString();
-  const star=p.reviewRate?("★"+p.reviewRate.toFixed(1)):"";
-  const rev=p.reviewCount?`レビュー${p.reviewCount.toLocaleString()}件`:"";
-  const proof=[star,rev].filter(Boolean).join(" / ");
   if(tone==="casual"){
-    return `${p.name}\n\n${price}で見つけた、気になるアイテムです。\n${proof?proof+"の商品です。\n":""}詳しい商品情報は商品ページでチェックしてみてください!`;
+    return `${p.name}\n\n気になるアイテムを見つけました。\n詳しい商品情報は商品ページでチェックしてみてください!`;
   }
   if(tone==="oshi"){
-    return `【これはチェックしたい】${p.name}\n\n気になるアイテムとしてご紹介🤍 価格は${price}。\n${proof?proof+"の商品です。\n":""}詳しい商品情報は、商品ページでチェックしてみてください。`;
+    return `【これはチェックしたい】${p.name}\n\n気になるアイテムとしてご紹介🤍\n詳しい商品情報は、商品ページでチェックしてみてください。`;
   }
   // polite
-  return `${p.name}\n\n価格は${price}。${proof?proof+"の商品です。":""}\n商品の詳しい情報は、商品ページからご確認いただけます。\n気になる方はぜひチェックしてみてください。`;
+  return `${p.name}\n\n商品の詳しい情報は、商品ページからご確認いただけます。\n気になる方はぜひチェックしてみてください。`;
 }
 function regenerateIntro(e,tone){
   e.tone=tone||"polite";
@@ -471,25 +470,28 @@ function renderWrite(){
     e.tags[tag]=!e.tags[tag];save();renderWrite();});
 }
 
-function buildPostText(e){
-  const p=e.product;
+function buildCommentText(e){
   const tags=Object.keys(e.tags).filter(t=>e.tags[t]).map(t=>"#"+t).join(" ");
-  return `${e.intro}\n\n${tags}\n${p.url}`;
+  return [e.intro,tags].filter(Boolean).join("\n\n");
 }
 function renderPosts(){
   const ids=Object.keys(state.pool).filter(id=>state.pool[id].selected);
   if(!ids.length){postList.innerHTML=`<div class="empty">投稿対象がありません。商品を選定し、紹介文を用意してください。</div>`;return;}
   postList.innerHTML=ids.map((id,i)=>{
     const e=state.pool[id];if(!e.intro)regenerateIntro(e,e.tone||"polite");
-    const text=buildPostText(e);
+    const text=buildCommentText(e),p=e.product;
     return `<div class="postcard">
-      <div class="hd"><span class="name">投稿 ${i+1} ・ ${esc(e.product.name)}</span>
-        <button class="btn sm" data-copy="${id}">この投稿をコピー</button></div>
-      <div class="bd"><div class="preview" id="pv-${id}">${esc(text)}</div></div>
+      <div class="hd"><span class="name">投稿 ${i+1} ・ ${esc(p.name)}</span>
+        <div class="post-actions">
+          <button class="btn sm" data-copy="${id}">1 紹介文をコピー</button>
+          <a class="btn ghost sm" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(p.name)}の商品ページを新しいタブで開く">2 商品ページを開く</a>
+        </div></div>
+      <div class="bd"><div class="preview" id="pv-${id}">${esc(text)}</div>
+        <div class="muted" style="margin-top:8px">コピー内容に商品URL・価格・レビュー情報は含まれません。</div></div>
     </div>`;
   }).join("");
   postList.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{
-    copy(buildPostText(state.pool[b.dataset.copy]));toast("コピーしました");});
+    copy(buildCommentText(state.pool[b.dataset.copy]));toast("紹介文をコピーしました");});
 }
 
 /* =====================  共通UI  ===================== */
@@ -547,8 +549,8 @@ el("toneSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{
 el("copyAll").onclick=()=>{
   const ids=Object.keys(state.pool).filter(id=>state.pool[id].selected);
   if(!ids.length){toast("投稿がありません");return;}
-  const all=ids.map((id,i)=>`── 投稿 ${i+1} ──\n`+buildPostText(state.pool[id])).join("\n\n\n");
-  copy(all);toast(ids.length+"件をまとめてコピーしました");
+  const all=ids.map((id,i)=>`── 投稿 ${i+1} ──\n`+buildCommentText(state.pool[id])).join("\n\n\n");
+  copy(all);toast(ids.length+"件の紹介文をまとめてコピーしました");
 };
 el("exportCsv").onclick=()=>{
   const ids=Object.keys(state.pool).filter(id=>state.pool[id].selected);
