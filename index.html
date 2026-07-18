@@ -314,16 +314,26 @@ function loadState(){
       let migrated=false;
       Object.values(s.pool).forEach(e=>{
         if(!e||!e.product) return;
-        if(!e.tags){e.tags={};migrated=true;}
         if(e.tagVersion!==TAG_SUGGEST_VERSION){
-          // 旧版の商品名由来タグには販促表記・ブランド名・重複語が含まれるため、v6で作り直す
-          e.tags={};
+          // 安全な手動タグは残し、旧版由来の販促語・ブランド名・セット表記だけを除去する
+          e.tags=migrateLegacyTags(e);
           e.tagVersion=TAG_SUGGEST_VERSION;
+          migrated=true;
+        }else if(!e.tags||Object.keys(e.tags).length===0){
+          // 執筆画面を経由せず投稿画面へ進んでも、未初期化のタグを空のままにしない
+          e.tags=migrateLegacyTags(e);
           migrated=true;
         }
         if(e.introVersion!==INTRO_COPY_VERSION){
-          if(e.intro) regenerateIntro(e,e.tone||"polite");
-          else e.introVersion=INTRO_COPY_VERSION;
+          if(e.intro&&shouldRegenerateLegacyIntro(e)){
+            // v5には編集済みフラグがなかったため、誤判定しても元へ戻せるよう必ず退避する
+            if(!e.legacyIntroBackup) e.legacyIntroBackup=e.intro;
+            regenerateIntro(e,e.tone||"polite");
+          }
+          else{
+            e.introVersion=INTRO_COPY_VERSION;
+            if(e.intro&&e.introEdited==null) e.introEdited=true;
+          }
           migrated=true;
         }
       });
@@ -331,7 +341,7 @@ function loadState(){
       return s;
     }
   }catch(e){}
-  return {pool:{}};   // pool: id -> {product, selected, tone, intro, introVersion, tags, tagVersion}
+  return {pool:{}};   // pool: id -> {product, selected, tone, intro, introVersion, introEdited, legacyIntroBackup, tags, tagVersion}
 }
 function save(){localStorage.setItem(STORE_KEY,JSON.stringify(state));updateBadges();}
 function updateBadges(){
@@ -355,12 +365,16 @@ const PRODUCT_CATEGORIES=[
   "掃除機","扇風機","加湿器","炊飯器","トースター","電子レンジ","クリーム","乳液","お茶",
   "お米","絵本","おもちゃ","パンツ","包丁","傘"
 ];
-const FEATURE_STOP=new Set(["レディース","メンズ","男女兼用","ユニセックス","女性向け","男性向け","大人","キッズ","ベビー","新品","正規品","公式","おすすめ","人気","商品","タワー","フリー","単品"]);
+const FEATURE_STOP=new Set(["レディース","メンズ","男女兼用","ユニセックス","女性向け","男性向け","大人","キッズ","ベビー","新品","正規品","公式","おすすめ","人気","商品","タワー","単品","セット","選べる","よりどり","から","点","個","本","枚","組"]);
 const BRAND_STOP=new Set(["carote","カローテ"]);
-const PACKAGE_ONLY_FEATURE=/^\d+\s*(?:点|個|本|枚|組)セット(?:[がをはでの])?$/;
+const PACKAGE_ONLY_FEATURE=/^(?:(?:選べる|よりどり))?\d+(?:点|個|本|枚|組)(?:セット)?(?:[がをはでのにとへ]|(?:から)?(?:選べる|よりどり))?$/;
 
 function normalizeProductText(value){
   return String(value||"").normalize("NFKC").replace(/[\u200B-\u200D\uFEFF]/g,"").replace(/\s+/g," ").trim();
+}
+function isPackageOnlyFeature(value){
+  const token=normalizeProductText(value).replace(/\s+/g,"");
+  return PACKAGE_ONLY_FEATURE.test(token)||/^(?:(?:から)?(?:選べる|よりどり)|(?:点|個|本|枚|組)?セット(?:(?:から)?(?:選べる|よりどり))?)$/.test(token);
 }
 function stripPromoText(value){
   let text=normalizeProductText(value);
@@ -388,24 +402,45 @@ function tokenizeProductName(value){
 }
 function findProductSubject(cleanedName,tokens){
   const joined=cleanedName.replace(/\s+/g,"");
+  if(/(?:(?:卵|玉子|たまご)焼き(?:フライパン|器)|エッグパン)/.test(joined)) return "卵焼きフライパン";
+  if(tokens.some(token=>normalizeProductText(token)==="パン")) return "パン";
   let found="",foundAt=Infinity;
   PRODUCT_CATEGORIES.forEach(category=>{
     const at=joined.indexOf(category);
     if(at>=0&&(at<foundAt||(at===foundAt&&category.length>found.length))){found=category;foundAt=at;}
   });
   if(found) return found;
-  const fallback=tokens.find(token=>!FEATURE_STOP.has(token)&&!/^\d/.test(token)&&token.length>=2)||"商品";
+  const fallback=tokens.find((token,index)=>{
+    const normalized=normalizeProductText(token);
+    const next=normalizeProductText(tokens[index+1]||"");
+    return normalized&&next!=="フリー"&&normalized!=="フリー"&&!FEATURE_STOP.has(normalized)&&!isPackageOnlyFeature(normalized)&&!isBrandLikeToken(normalized,index,tokens,"商品")&&!/^\d/.test(normalized)&&!/^[A-Za-z][A-Za-z0-9._-]{2,}$/.test(normalized)&&normalized.length>=2;
+  })||"商品";
   return fallback.slice(0,24);
 }
 function isSubjectToken(token,subject){
   if(subject!=="商品"&&token.length>=2&&subject.includes(token)) return true;
-  return subject==="卵焼きフライパン"&&/^(?:卵焼き器|玉子焼き器|たまご焼き器)$/.test(token);
+  return subject==="卵焼きフライパン"&&/^(?:(?:卵|玉子|たまご)焼き(?:フライパン|器)?|エッグパン)$/.test(token);
+}
+function isKnownBrandText(value){
+  const normalized=normalizeProductText(value).toLowerCase();
+  return BRAND_STOP.has(normalized)||/^(?:caroteカローテ|カローテcarote)$/.test(normalized);
+}
+const LATIN_LETTER_READINGS={a:"エー",b:"ビー",c:"シー",d:"ディー",e:"イー",f:"エフ",g:"ジー",h:"エイチ",i:"アイ",j:"ジェー",k:"ケー",l:"エル",m:"エム",n:"エヌ",o:"オー",p:"ピー",q:"キュー",r:"アール",s:"エス",t:"ティー",u:"ユー",v:"ブイ",w:"ダブリュー",x:"エックス",y:"ワイ",z:"ゼット"};
+function latinLetterReading(value){
+  const letters=normalizeProductText(value).toLowerCase();
+  if(!/^[a-z]{2,6}$/.test(letters)) return "";
+  return Array.from(letters).map(letter=>LATIN_LETTER_READINGS[letter]||"").join("");
 }
 function isBrandLikeToken(token,index,tokens,subject){
-  const normalized=normalizeProductText(token).toLowerCase();
-  if(BRAND_STOP.has(normalized)||/^(?:caroteカローテ|カローテcarote)$/.test(normalized)) return true;
+  if(isKnownBrandText(token)) return true;
+  const combined=normalizeProductText(token).match(/^([A-Za-z]{2,6})([ァ-ヶー]+)$/);
+  if(combined&&latinLetterReading(combined[1])===combined[2]) return true;
   const previous=normalizeProductText(tokens[index-1]||"");
-  return subject!=="商品"&&/^[A-Za-z][A-Za-z0-9._-]{2,}$/.test(previous)&&/^[ァ-ヶー]{3,}$/.test(token);
+  const normalized=normalizeProductText(token);
+  if(latinLetterReading(previous)===normalized) return true;
+  if(!/^[A-Za-z][A-Za-z0-9._-]{2,}$/.test(previous)||!/^[ァ-ヶー]{3,}$/.test(normalized)) return false;
+  // 英字ブランド直後の読み仮名は除く。ただし既知の仕様語・商品カテゴリは保持する
+  return !isStrongFeature(normalized)&&!PRODUCT_CATEGORIES.some(category=>category===normalized||category.includes(normalized));
 }
 function isProductVariantToken(token,subject){
   if(isSubjectToken(token,subject)) return true;
@@ -430,7 +465,7 @@ function featureGroup(token){
   return token.toLowerCase().replace(/[^\p{L}\p{N}]/gu,"");
 }
 function isStrongFeature(token){
-  return /完全|超|高|100|自動|形状記憶|晴雨兼用|真空断熱|速乾|乾燥|乾かす|収納|抗菌|防水|撥水|保温|保冷|無香料|低遅延|ノイズキャンセリング|調光|調色|大容量|コンパクト|洗える|遮熱|丈夫|セラミド|オーガニック|IH対応|マーブルコート|蓋付き|取っ手.*取れ|手入れ簡単|くっつきにく/i.test(token);
+  return /完全|超|高|100|自動|形状記憶|晴雨兼用|真空断熱|速乾|乾燥|乾かす|収納|抗菌|防水|撥水|保温|保冷|無香料|無添加|低遅延|ノイズキャンセリング|調光|調色|大容量|コンパクト|洗える|遮熱|丈夫|セラミド|ツボクサ|マデカッソシド|ヒアルロン酸|ナイアシンアミド|ビタミンC|レチノール|コラーゲン|オーガニック|グルテンフリー|アルコールフリー|シリコンフリー|パラベンフリー|国産米粉|IH対応|マーブルコート|蓋付き|取っ手.*取れ|手入れ簡単|くっつきにく/i.test(token);
 }
 function featureScore(token,index){
   let score=100-index;
@@ -441,12 +476,19 @@ function extractProductFeatures(tokens,subject){
   const candidates=[];
   tokens.forEach((raw,index)=>{
     let token=raw;
+    const next=normalizeProductText(tokens[index+1]||"");
+    if(next==="フリー") return;
+    if(normalizeProductText(token)==="フリー"){
+      const previous=normalizeProductText(tokens[index-1]||"");
+      if(!previous||isKnownBrandText(previous)||isSubjectToken(previous,subject)) return;
+      token=`${previous}フリー`;
+    }
     if(isProductVariantToken(token,subject)||isBrandLikeToken(token,index,tokens,subject)) return;
     if(subject!=="商品"&&token.includes(subject)) token=token.split(subject).join("");
     token=canonicalizeFeatureToken(token.replace(/^[\-+]+|[\-+]+$/g,"").trim());
     if(!token||token===subject||FEATURE_STOP.has(token)||PROMO_WORDS.test(token)) return;
     if(/^[がをはでのにとへ]$/.test(token)) return;
-    if(PACKAGE_ONLY_FEATURE.test(token)) return;
+    if(isPackageOnlyFeature(token)) return;
     if(/^\d+(?:\.\d+)?(?:[*×xX]\d+(?:\.\d+)?){1,2}(?:cm|mm)?$/i.test(token)) return;
     if(/^\d+(?:\.\d+)?(?:mL|ml|ML|L|kg|g|cm|mm|本|個|枚|袋|段)$/i.test(token)) return;
     if(/^(?:春|夏|秋|冬|春夏|秋冬)$/.test(token)) return;
@@ -486,6 +528,48 @@ function suggestTags(p){
   ["楽天ROOM","楽天room発見隊","おすすめ"].forEach(t=>base.add(t));
   return Array.from(base).filter(Boolean).slice(0,12);
 }
+function normalizeIntroText(value){
+  return String(value||"").normalize("NFKC").replace(/\r\n?/g,"\n").trim();
+}
+function looksLikeLegacyGeneratedIntro(e){
+  const intro=normalizeIntroText(e.intro);
+  if(!intro) return false;
+  const name=String(e.product&&e.product.name||"");
+  const v4=[
+    `${name}\n\n気になるアイテムを見つけました。\n詳しい商品情報は商品ページでチェックしてみてください!`,
+    `【これはチェックしたい】${name}\n\n気になるアイテムとしてご紹介🤍\n詳しい商品情報は、商品ページでチェックしてみてください。`,
+    `${name}\n\n商品の詳しい情報は、商品ページからご確認いただけます。\n気になる方はぜひチェックしてみてください。`
+  ].map(normalizeIntroText);
+  if(v4.includes(intro)) return true;
+
+  // v5は商品ごとに抽出語が異なるため、固定3行テンプレートの全体形だけを厳密に照合する
+  const lines=intro.split("\n").map(line=>line.trim()).filter(Boolean);
+  if(lines.length!==3) return false;
+  if(/^気になる.+をピックアップ。$/.test(lines[0])&&/^(?:特徴や仕様を確認しておきたいアイテムです。|.+といった特徴があります。)$/.test(lines[1])&&lines[2]==="詳しくは商品ページを見てみてください。") return true;
+  if(/^注目したい.+をピックアップ🤍$/.test(lines[0])&&/^(?:特徴や仕様が気になるアイテムです。|.+など、気になるポイントがそろっています。)$/.test(lines[1])&&lines[2]==="詳しくは商品ページでチェックしてみてください。") return true;
+  return /^.+の中から、気になるアイテムをピックアップしました。$/.test(lines[0])&&/^(?:特徴や仕様を確認しておきたいアイテムです。|.+といった特徴があります。)$/.test(lines[1])&&lines[2]==="詳しい仕様やカラーは、商品ページでご確認ください。";
+}
+function shouldRegenerateLegacyIntro(e){
+  if(e.introEdited===true) return false;
+  return looksLikeLegacyGeneratedIntro(e);
+}
+function restoreLegacyIntro(e){
+  if(!e||!e.legacyIntroBackup) return false;
+  e.intro=e.legacyIntroBackup;
+  e.introVersion=INTRO_COPY_VERSION;
+  e.introEdited=true;
+  return true;
+}
+function migrateLegacyTags(e){
+  const tags={};
+  Object.entries(e.tags||{}).forEach(([raw,enabled])=>{
+    const tag=normalizeProductText(raw);
+    if(!tag||PROMO_WORDS.test(tag)||/CAROTE|カローテ/i.test(tag)||isPackageOnlyFeature(tag)||FEATURE_STOP.has(tag)||/^[がをはでのにとへ]$/.test(tag)) return;
+    tags[tag]=Boolean(enabled);
+  });
+  if(Object.keys(tags).length===0) suggestTags(e.product).slice(0,6).forEach(tag=>{tags[tag]=true;});
+  return tags;
+}
 function formatFeatureSentence(features,tone){
   if(features.length===0) return "仕様を確認して選びたいアイテムです。";
   if(features.length===1) return `${features[0]}が特徴のアイテムです。`;
@@ -510,6 +594,7 @@ function regenerateIntro(e,tone){
   e.tone=tone||"polite";
   e.intro=genIntro(e.product,e.tone);
   e.introVersion=INTRO_COPY_VERSION;
+  e.introEdited=false;
   return e.intro;
 }
 state=loadState();
@@ -542,7 +627,9 @@ function renderResults(list){
   results.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{
     const p=list.find(x=>x.id===b.dataset.add);
     if(state.pool[p.id]){toast("すでに候補にあります");return;}
-    state.pool[p.id]={product:p,selected:true,tone:currentTone,intro:"",introVersion:INTRO_COPY_VERSION,tags:{},tagVersion:TAG_SUGGEST_VERSION};
+    const tags={};
+    suggestTags(p).slice(0,6).forEach(tag=>{tags[tag]=true;});
+    state.pool[p.id]={product:p,selected:true,tone:currentTone,intro:"",introVersion:INTRO_COPY_VERSION,introEdited:false,tags,tagVersion:TAG_SUGGEST_VERSION};
     save();renderResults(list);renderPool();toast("候補に追加しました");
   });
 }
@@ -592,7 +679,10 @@ function renderWrite(){
           <div class="field">
             <label>紹介文(編集できます)</label>
             <textarea data-intro="${id}">${esc(e.intro)}</textarea>
-            <button class="btn ghost sm" data-regen="${id}" style="align-self:flex-start;margin-top:6px">この紹介文を再生成</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+              <button class="btn ghost sm" data-regen="${id}">この紹介文を再生成</button>
+              ${e.legacyIntroBackup?`<button class="btn ghost sm" data-restore-intro="${id}">移行前の文に戻す</button>`:""}
+            </div>
           </div>
           <div class="field">
             <label>ハッシュタグ(クリックでON/OFF)</label>
@@ -605,9 +695,11 @@ function renderWrite(){
   }).join("");
 
   writeList.querySelectorAll("[data-intro]").forEach(t=>t.oninput=()=>{
-    const e=state.pool[t.dataset.intro];e.intro=t.value;e.introVersion=INTRO_COPY_VERSION;save();});
+    const e=state.pool[t.dataset.intro];e.intro=t.value;e.introVersion=INTRO_COPY_VERSION;e.introEdited=true;save();});
   writeList.querySelectorAll("[data-regen]").forEach(b=>b.onclick=()=>{
     const id=b.dataset.regen,e=state.pool[id];regenerateIntro(e,e.tone||"polite");save();renderWrite();});
+  writeList.querySelectorAll("[data-restore-intro]").forEach(b=>b.onclick=()=>{
+    const e=state.pool[b.dataset.restoreIntro];if(restoreLegacyIntro(e)){save();renderWrite();}});
   writeList.querySelectorAll("[data-toneseg]").forEach(seg=>{
     seg.querySelectorAll("button").forEach(btn=>btn.onclick=()=>{
       const id=seg.dataset.toneseg,e=state.pool[id];regenerateIntro(e,btn.dataset.t);save();renderWrite();});
