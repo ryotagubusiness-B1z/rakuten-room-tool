@@ -27,13 +27,13 @@ vm.createContext(context);
 vm.runInContext(`${html.slice(start, end)}\nthis.result=state;`, context);
 
 const migrated = context.result.pool.item1;
-assert.equal(migrated.introVersion, 5);
-assert.equal(migrated.tagVersion, 2);
+assert.equal(migrated.introVersion, 6);
+assert.equal(migrated.tagVersion, 3);
 assert.equal(/クーポン|OFF/.test(migrated.intro), false);
 assert.equal((migrated.intro.match(/日傘/g) || []).length, 1);
 assert.deepEqual(Object.keys(migrated.tags), []);
 
 const persisted = JSON.parse(storage.get("rakuten_room_tool_v1")).pool.item1;
-assert.equal(persisted.introVersion, 5, "移行結果をlocalStorageへ保存する");
-assert.equal(persisted.tagVersion, 2, "タグ移行結果をlocalStorageへ保存する");
+assert.equal(persisted.introVersion, 6, "移行結果をlocalStorageへ保存する");
+assert.equal(persisted.tagVersion, 3, "タグ移行結果をlocalStorageへ保存する");
 console.log("migration: all tests passed");

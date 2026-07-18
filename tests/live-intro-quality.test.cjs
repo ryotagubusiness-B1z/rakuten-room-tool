@@ -24,7 +24,7 @@ const paramsFor = keyword => new URLSearchParams({
   sort: "-reviewCount"
 });
 const unsafe = /買った|購入しました|使った|愛用|リピ|早く買えば|使ってみた|おすすめします/;
-const promo = /クーポン|\d+(?:\.\d+)?\s*(?:%|％)\s*(?:OFF|オフ|割引)|ランキング|最安|特価|送料無料|ポイント\s*\d+倍/i;
+const promo = /クーポン|\d+(?:\.\d+)?\s*(?:%|％)\s*(?:OFF|オフ|割引)|ランキング|最安|特価|激安|送料無料|ポイント\s*\d+倍/i;
 
 async function fetchItems(keyword) {
   const url = `https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701?${paramsFor(keyword)}`;
@@ -40,7 +40,7 @@ async function fetchItems(keyword) {
 }
 
 (async () => {
-  for (const keyword of ["日傘", "化粧水", "イヤホン", "タンブラー"]) {
+  for (const keyword of ["日傘", "化粧水", "イヤホン", "タンブラー", "CAROTE 卵焼き フライパン"]) {
     const items = await fetchItems(keyword);
     assert.ok(items.length >= 5, `${keyword}: 5商品以上を検証できること`);
     for (const item of items) {
@@ -51,6 +51,8 @@ async function fetchItems(keyword) {
         const intro = context.api.genIntro(product, tone);
         assert.equal(promo.test(intro), false, `${keyword}/${tone}: 販促語を含まない`);
         assert.equal(unsafe.test(intro), false, `${keyword}/${tone}: 購入・使用済み表現を含まない`);
+        assert.equal(intro.includes("気になるポイントがそろっています"), false, `${keyword}/${tone}: 根拠の薄い定型句を含まない`);
+        if (keyword.startsWith("CAROTE")) assert.equal(/CAROTE|カローテ|\d+\s*点セット/i.test(intro), false, `${keyword}/${tone}: ブランド名・セット数を特徴化しない`);
         assert.ok(intro.length <= 140, `${keyword}/${tone}: 140文字以内に収める`);
         assert.notEqual(intro.includes(item.itemName), true, `${keyword}/${tone}: 元の商品名をそのまま掲載しない`);
         if (summary.subject !== "商品") {
